@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wood02/Default-App/releases"><img src="https://img.shields.io/badge/Release-v3.0.0-blue.svg?style=flat-square" alt="Release" /></a>
+  <a href="https://github.com/wood02/DefaultApp/releases"><img src="https://img.shields.io/badge/Release-v0.0.1-blue.svg?style=flat-square" alt="Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/macOS-12.0+-black.svg?style=flat-square&logo=apple" alt="macOS 12+" />
   <img src="https://img.shields.io/badge/Architecture-Universal%20(Apple%20Silicon%20%2B%20Intel)-purple.svg?style=flat-square" alt="Universal 2" />
@@ -54,16 +54,16 @@
 ### 📦 安装方式
 
 #### 方式一：直接下载发布包（推荐）
-前往 [GitHub Releases](https://github.com/wood02/Default-App/releases) 下载最新的 DMG 或 ZIP 安装包：
-1. 双击打开 `Default-App-v3.0.0-macOS-Universal.dmg`；
+前往 [GitHub Releases](https://github.com/wood02/DefaultApp/releases) 下载最新的 DMG 或 ZIP 安装包：
+1. 双击打开 `Default-App-v0.0.1-macOS-Universal.dmg`；
 2. 将 **Default App** 拖入 `Applications` 文件夹即可直接运行。
 
 #### 方式二：源码一键构建
 本工程无需额外第三方依赖，使用系统自带的 Xcode Command Line Tools 即可秒级编译：
 ```bash
 # 克隆仓库
-git clone https://github.com/wood02/Default-App.git
-cd Default-App
+git clone https://github.com/wood02/DefaultApp.git
+cd DefaultApp
 
 # 一键编译并安装到 /Applications
 make install

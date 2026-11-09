@@ -2,7 +2,7 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="3.0.0"
+VERSION="0.0.1"
 APP_NAME="Default App"
 BUILD_APP="$REPO_ROOT/build/$APP_NAME.app"
 DIST_DIR="$REPO_ROOT/dist"
