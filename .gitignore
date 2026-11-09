@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon\r\r
+
+# Build Artifacts
+build/
+dist/
+*.app
+*.dSYM
+*.dmg
+*.zip
+
+# Swift & Xcode
+.build/
+Packages/
+*.xcodeproj/
+*.xcworkspace/
+
+# Temporary files
+*.tmp
+*.bak
+tools/icon-generators/*.png
+!Resources/*.png
