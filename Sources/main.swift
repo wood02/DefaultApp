@@ -595,19 +595,26 @@ final class AppViewModel: ObservableObject {
     }
 }
 
-// MARK: - Modern Design System Components
+// MARK: - Native Design System & Visual Materials
 
-struct AppTheme {
-    static let primaryGradient = LinearGradient(
-        colors: [Color(red: 0.25, green: 0.38, blue: 0.95), Color(red: 0.12, green: 0.58, blue: 0.98)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-    static let emeraldGradient = LinearGradient(
-        colors: [Color(red: 0.05, green: 0.75, blue: 0.50), Color(red: 0.02, green: 0.65, blue: 0.40)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .sidebar
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+    var state: NSVisualEffectView.State = .followsWindowActiveState
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = state
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+        nsView.state = state
+    }
 }
 
 struct ToastBanner: View {
@@ -758,18 +765,32 @@ struct ContentView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Top Navigation & Command Bar
+            // Modern macOS Unified Navigation & Header Bar
             HStack(spacing: 16) {
-                // Brand Title & Status
-                HStack(spacing: 12) {
+                // Brand Title & Status Indicator
+                HStack(spacing: 10) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
-                        .frame(width: 40, height: 40)
-                        .shadow(color: .black.opacity(0.14), radius: 4, y: 2)
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
                     
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Default App")
-                            .font(.system(size: 14, weight: .bold))
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 6) {
+                            Text("Default App")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("v\(updater.currentVersion)")
+                                .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.primary.opacity(0.06))
+                                .cornerRadius(3.5)
+                        }
                         Text("macOS 文件关联架构管家")
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
@@ -778,40 +799,33 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                // Mode Switcher Segment
-                HStack(spacing: 4) {
+                // Centered Segmented Navigation Tab
+                Picker("", selection: $vm.activeTab) {
                     ForEach(AppViewModel.NavigationTab.allCases, id: \.self) { tab in
-                        Button(action: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                vm.activeTab = tab
-                            }
-                        }) {
-                            Text(tab.rawValue)
-                                .font(.system(size: 12, weight: vm.activeTab == tab ? .semibold : .regular))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 5)
-                                .background(
-                                    vm.activeTab == tab ?
-                                    Color.primary.opacity(0.12) : Color.clear
-                                )
-                                .cornerRadius(7)
-                        }
-                        .buttonStyle(.plain)
+                        Text(tab.rawValue).tag(tab)
                     }
                 }
-                .padding(3)
-                .background(Color.primary.opacity(0.05))
-                .cornerRadius(9)
+                .pickerStyle(.segmented)
+                .frame(width: 220)
                 
                 Spacer()
                 
-                // Status / App Count & Dynamic Update Capsule Button
-                HStack(spacing: 12) {
-                    Text("\(vm.apps.count) 款应用已就绪")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.secondary)
+                // Status Counter & Dynamic Update Pill
+                HStack(spacing: 10) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                        Text("\(vm.apps.count) 款应用就绪")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.primary.opacity(0.04))
+                    .cornerRadius(6)
                     
-                    // 仅在检测到新版本可用时，才动态浮现此 [↑ 更新] 胶囊按钮
+                    // Dynamic Update Capsule (appears only when update is available)
                     if let release = updater.availableRelease {
                         Button(action: {
                             updater.showUpdateSheet = true
@@ -821,21 +835,20 @@ struct ContentView: View {
                                     ProgressView()
                                         .controlSize(.mini)
                                 } else {
-                                    Image(systemName: "arrow.up")
-                                        .font(.system(size: 10, weight: .bold))
+                                    Image(systemName: "arrow.up.circle.fill")
+                                        .font(.system(size: 11, weight: .semibold))
                                 }
-                                Text(updater.isDownloading ? "更新中..." : "更新")
-                                    .font(.system(size: 12, weight: .semibold))
+                                Text(updater.isDownloading ? "更新中..." : "新版本 \(release.tagName)")
+                                    .font(.system(size: 11, weight: .semibold))
                             }
-                            .foregroundColor(Color(red: 0.38, green: 0.38, blue: 0.95))
-                            .padding(.horizontal, 11)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(Color(red: 0.38, green: 0.38, blue: 0.95).opacity(0.10))
-                            .overlay(
+                            .background(
                                 Capsule()
-                                    .stroke(Color(red: 0.38, green: 0.38, blue: 0.95).opacity(0.35), lineWidth: 1)
+                                    .fill(Color.accentColor)
                             )
-                            .clipShape(Capsule())
+                            .shadow(color: Color.accentColor.opacity(0.3), radius: 4, y: 1.5)
                         }
                         .buttonStyle(.plain)
                         .transition(.scale(scale: 0.85).combined(with: .opacity))
@@ -844,17 +857,21 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(Color(NSColor.windowBackgroundColor))
+            .padding(.vertical, 9)
+            .background(VisualEffectView(material: .titlebar, blendingMode: .withinWindow))
+            .overlay(
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(Color(nsColor: .separatorColor).opacity(0.5)),
+                alignment: .bottom
+            )
             .overlay(alignment: .top) {
                 if let toast = vm.toastText {
                     ToastBanner(text: toast, success: vm.isToastSuccess)
-                        .padding(.top, 10)
+                        .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            
-            Divider()
             
             // Core View Area
             if vm.activeTab == .byApp {
@@ -949,74 +966,103 @@ struct AppManagementView: View {
         PreciseSplitView(
             left: leftPanel,
             right: rightPanel,
-            defaultWidth: 280,
+            defaultWidth: 285,
             minWidth: 250,
-            maxWidth: 330
+            maxWidth: 350
         )
     }
     
     private var leftPanel: some View {
         VStack(spacing: 0) {
-            // Category Carousel Pills
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+            // Sidebar Controls: Category Pop-up & Compact Search
+            VStack(spacing: 8) {
+                // Category Filter Menu
+                Menu {
                     ForEach(AppCategory.allCases) { cat in
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
                                 vm.selectedCategory = cat
                             }
-                        }) {
-                            HStack(spacing: 5) {
-                                Image(systemName: cat.iconName)
-                                    .font(.system(size: 10))
-                                Text(cat.rawValue)
-                                    .font(.system(size: 11, weight: vm.selectedCategory == cat ? .semibold : .regular))
+                        } label: {
+                            HStack {
+                                Label(cat.rawValue, systemImage: cat.iconName)
+                                if vm.selectedCategory == cat {
+                                    Spacer()
+                                    Image(systemName: "checkmark")
+                                }
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                vm.selectedCategory == cat ?
-                                Color.accentColor.opacity(0.18) : Color.primary.opacity(0.04)
-                            )
-                            .foregroundColor(vm.selectedCategory == cat ? .accentColor : .primary)
-                            .cornerRadius(8)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: vm.selectedCategory.iconName)
+                            .font(.system(size: 11))
+                            .foregroundColor(.accentColor)
+                        Text(vm.selectedCategory.rawValue)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color.primary.opacity(0.04))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+                    )
+                }
+                .menuStyle(.borderlessButton)
+                
+                // Native-styled Search Input
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                    TextField("筛选应用名称或扩展名...", text: $vm.appSearchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11.5))
+                    if !vm.appSearchText.isEmpty {
+                        Button(action: { vm.appSearchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 10))
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-            
-            // Search Input
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 12))
-                TextField("筛选应用名称或扩展名...", text: $vm.appSearchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                if !vm.appSearchText.isEmpty {
-                    Button(action: { vm.appSearchText = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 12))
-                    }
-                    .buttonStyle(.plain)
-                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.primary.opacity(0.04))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+                )
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.primary.opacity(0.04))
-            .cornerRadius(8)
-            .padding(.horizontal, 12)
+            .padding(.top, 10)
             .padding(.bottom, 8)
             
-            Divider()
+            // List Header Summary
+            HStack {
+                Text("\(vm.filteredApps.count) 款应用")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 4)
             
-            // App List
+            Divider()
+                .opacity(0.6)
+            
+            // App List with Native Vibrancy
             ScrollView {
-                LazyVStack(spacing: 3) {
+                LazyVStack(spacing: 2) {
                     ForEach(vm.filteredApps) { app in
                         AppCardRow(
                             app: app,
@@ -1027,11 +1073,11 @@ struct AppManagementView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 6)
                 .padding(.vertical, 6)
             }
         }
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.4))
+        .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
     }
     
     @ViewBuilder
@@ -1040,14 +1086,15 @@ struct AppManagementView: View {
             AppDetailInspector(app: app, vm: vm)
         } else {
             VStack(spacing: 12) {
-                Image(systemName: "cursorarrow.click.2")
+                Image(systemName: "macwindow.badge.plus")
                     .font(.system(size: 38))
-                    .foregroundColor(.secondary.opacity(0.5))
+                    .foregroundColor(.secondary.opacity(0.4))
                 Text("从左侧选择一款应用，开始检视和配置其文件关联")
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 }
@@ -1055,45 +1102,59 @@ struct AppManagementView: View {
 struct AppCardRow: View {
     let app: AppInfo
     let isSelected: Bool
+    @State private var isHovered: Bool = false
     
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 9) {
             Image(nsImage: app.icon)
                 .resizable()
-                .frame(width: 32, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                .frame(width: 28, height: 28)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.06), radius: 1.5, y: 1)
             
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(app.name)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
-                    .foregroundColor(isSelected ? .accentColor : .primary)
+                    .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
+                    .foregroundColor(isSelected ? .white : .primary)
                     .lineLimit(1)
                 
                 Text(app.bundleId)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary)
                     .lineLimit(1)
             }
             
-            Spacer()
+            Spacer(minLength: 4)
             
-            // Format count badge
+            // Format count tag
             Text("\(app.extensions.count)")
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .padding(.horizontal, 7)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(isSelected ? Color.accentColor.opacity(0.2) : Color.primary.opacity(0.06))
-                .foregroundColor(isSelected ? .accentColor : .secondary)
-                .cornerRadius(6)
+                .background(
+                    isSelected
+                        ? Color.white.opacity(0.25)
+                        : Color.primary.opacity(0.06)
+                )
+                .foregroundColor(isSelected ? .white : .secondary)
+                .cornerRadius(4.5)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
         .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(
+                    isSelected
+                        ? Color.accentColor
+                        : (isHovered ? Color.primary.opacity(0.04) : Color.clear)
+                )
         )
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -1104,56 +1165,97 @@ struct AppDetailInspector: View {
     @ObservedObject var vm: AppViewModel
     @State private var showConfirmAllDialog: Bool = false
     
+    var completionRatio: Double {
+        guard !app.extensions.isEmpty else { return 0 }
+        return Double(vm.activeExtensionsCount) / Double(app.extensions.count)
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
-            // App Hero Showcase
-            HStack(alignment: .top, spacing: 16) {
+            // App Hero Dashboard Card
+            HStack(alignment: .top, spacing: 14) {
+                // Large App Icon
                 Image(nsImage: app.icon)
                     .resizable()
-                    .frame(width: 60, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+                    .frame(width: 54, height: 54)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
                 
+                // App Information & Metric Pills
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text(app.name)
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .font(.system(size: 19, weight: .bold, design: .rounded))
+                            .lineLimit(1)
                         
                         Text(app.category.rawValue)
                             .font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 7)
+                            .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.primary.opacity(0.08))
-                            .cornerRadius(5)
+                            .background(Color.primary.opacity(0.06))
+                            .foregroundColor(.secondary)
+                            .cornerRadius(4.5)
+                            .lineLimit(1)
                     }
                     
-                    Text(app.bundleId)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.secondary)
-                    
-                    HStack(spacing: 12) {
-                        Text("支持格式: \(app.extensions.count) 个")
-                            .font(.system(size: 11))
+                    HStack(spacing: 6) {
+                        Text(app.bundleId)
+                            .font(.system(size: 10.5, design: .monospaced))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                        
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(app.bundleId, forType: .string)
+                            vm.showToast("已复制 Bundle ID", success: true)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("点击复制 Bundle ID")
+                    }
+                    
+                    // Status Strip (Strictly 1 line, never wrapped)
+                    HStack(spacing: 8) {
+                        HStack(spacing: 3.5) {
+                            Image(systemName: "doc.on.doc.fill")
+                                .font(.system(size: 9.5))
+                                .foregroundColor(.secondary)
+                            Text("支持 \(app.extensions.count) 格式")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
                         
                         Text("•")
-                            .foregroundColor(.secondary.opacity(0.4))
+                            .foregroundColor(.secondary.opacity(0.3))
                         
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(Color.green)
+                                .fill(completionRatio >= 1.0 ? Color.green : (completionRatio > 0 ? Color.orange : Color.secondary))
                                 .frame(width: 6, height: 6)
-                            Text("已默认生效: \(vm.activeExtensionsCount)/\(app.extensions.count)")
+                            Text("默认生效: \(vm.activeExtensionsCount)/\(app.extensions.count)")
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.green)
+                                .foregroundColor(completionRatio >= 1.0 ? .green : .primary)
+                            Text("(\(Int(completionRatio * 100))%)")
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .foregroundColor(.secondary)
                         }
                     }
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 
-                Spacer()
+                Spacer(minLength: 12)
                 
-                // Primary Action Cluster (恢复最初紧凑布局，与 Code 标题顶对齐)
-                VStack(alignment: .trailing, spacing: 8) {
+                // Action Cluster (Restored Clean 2-Tier: Primary on top, helpers on bottom)
+                VStack(alignment: .trailing, spacing: 7) {
+                    // Primary Action: Save Checked Associations
                     Button(action: {
                         if vm.selectedExtensionsCount > 0 {
                             vm.applySelectedExtensions()
@@ -1161,66 +1263,71 @@ struct AppDetailInspector: View {
                             vm.showToast("请先在下方勾选需要绑定的格式", success: false)
                         }
                     }) {
-                        HStack(spacing: 7) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11.5))
                             Text("保存勾选配置")
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundColor(vm.selectedExtensionsCount > 0 ? Color.primary : Color.secondary)
+                                .font(.system(size: 12, weight: .semibold))
+                                .lineLimit(1)
                             
-                            // 右侧数量药丸
+                            // Badge with count
                             Text("\(vm.selectedExtensionsCount)")
-                                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                                .foregroundColor(vm.selectedExtensionsCount > 0 ? Color.primary.opacity(0.85) : Color.secondary.opacity(0.6))
-                                .padding(.horizontal, 6)
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 5.5)
                                 .padding(.vertical, 1.5)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 4.5, style: .continuous)
-                                        .fill(vm.selectedExtensionsCount > 0 ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
+                                    vm.selectedExtensionsCount > 0
+                                        ? Color.white.opacity(0.25)
+                                        : Color.primary.opacity(0.06)
                                 )
+                                .clipShape(Capsule())
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 5.5)
                         .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(Color(NSColor.controlBackgroundColor))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .stroke(Color.primary.opacity(vm.selectedExtensionsCount > 0 ? 0.16 : 0.08), lineWidth: 1.1)
-                                )
-                                .shadow(color: .black.opacity(vm.selectedExtensionsCount > 0 ? 0.05 : 0.0), radius: 2.5, y: 1)
+                            RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                                .fill(vm.selectedExtensionsCount > 0 ? Color.accentColor : Color.primary.opacity(0.08))
                         )
+                        .foregroundColor(vm.selectedExtensionsCount > 0 ? .white : .secondary)
+                        .shadow(color: vm.selectedExtensionsCount > 0 ? Color.accentColor.opacity(0.25) : .clear, radius: 3, y: 1)
                     }
                     .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
                     
-                    // 次级辅助条
-                    HStack(spacing: 10) {
+                    // Secondary Actions Row
+                    HStack(spacing: 7) {
                         Button("全选") { vm.toggleAllSelection(select: true) }
                             .font(.system(size: 11, weight: .medium))
                             .buttonStyle(.plain)
                             .foregroundColor(.accentColor)
+                            .lineLimit(1)
                         
                         Button("取消全选") { vm.toggleAllSelection(select: false) }
                             .font(.system(size: 11))
                             .buttonStyle(.plain)
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
                         
                         Text("•")
                             .foregroundColor(.secondary.opacity(0.3))
                         
-                        // 次级按钮：一键绑定所有格式
+                        // One-Click Bind All Button
                         Button(action: { showConfirmAllDialog = true }) {
-                            HStack(spacing: 4) {
+                            HStack(spacing: 3.5) {
                                 Image(systemName: "bolt.fill")
                                     .font(.system(size: 9))
                                 Text("一键绑定所有 (\(app.extensions.count))")
                                     .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.primary.opacity(0.06))
-                            .cornerRadius(6)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(Color.primary.opacity(0.05))
+                            .cornerRadius(5)
                         }
                         .buttonStyle(.plain)
                         .foregroundColor(.secondary)
+                        .fixedSize(horizontal: true, vertical: false)
                         .alert(isPresented: $showConfirmAllDialog) {
                             Alert(
                                 title: Text("确认一键绑定？"),
@@ -1232,44 +1339,53 @@ struct AppDetailInspector: View {
                             )
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            .padding(18)
-            .background(
-                Rectangle()
-                    .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
-            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
             
             Divider()
+                .opacity(0.6)
             
-            // Sub-Toolbar (Filter Pills + Search)
+            // Sub-Toolbar: Segmented Filter & Live Search
             HStack(spacing: 12) {
-                // Filter pills
-                HStack(spacing: 4) {
+                // Filter Segmented Controls
+                HStack(spacing: 2) {
                     ForEach(AppViewModel.ExtensionFilterMode.allCases, id: \.self) { mode in
-                        Button(action: { vm.extensionFilterMode = mode }) {
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                vm.extensionFilterMode = mode
+                            }
+                        }) {
                             Text(mode.rawValue)
                                 .font(.system(size: 11, weight: vm.extensionFilterMode == mode ? .semibold : .regular))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(vm.extensionFilterMode == mode ? Color.primary.opacity(0.12) : Color.clear)
-                                .cornerRadius(6)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 3.5)
+                                .background(
+                                    vm.extensionFilterMode == mode
+                                        ? Color.accentColor.opacity(0.15)
+                                        : Color.clear
+                                )
+                                .foregroundColor(vm.extensionFilterMode == mode ? .accentColor : .primary)
+                                .cornerRadius(5)
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(2)
                 .background(Color.primary.opacity(0.04))
-                .cornerRadius(7)
+                .cornerRadius(6)
                 
                 Spacer()
                 
-                // Search field + Refresh Button
-                HStack(spacing: 8) {
-                    HStack(spacing: 6) {
+                // Search field & Refresh Action
+                HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.secondary)
-                            .font(.system(size: 11))
+                            .font(.system(size: 10.5))
                         TextField("快速过滤格式...", text: $vm.extensionSearchText)
                             .textFieldStyle(.plain)
                             .font(.system(size: 11))
@@ -1283,35 +1399,37 @@ struct AppDetailInspector: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3.5)
                     .background(Color.primary.opacity(0.04))
-                    .cornerRadius(6)
+                    .cornerRadius(5.5)
                     
-                    // Compact Refresh Icon Button
+                    // Refresh Button
                     Button(action: {
                         vm.reloadExtensions()
                         vm.showToast("已刷新格式默认状态", success: true)
                     }) {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 10.5, weight: .medium))
                             .foregroundColor(.secondary)
-                            .padding(6)
+                            .padding(5.5)
                             .background(Color.primary.opacity(0.04))
-                            .cornerRadius(6)
+                            .cornerRadius(5.5)
                     }
                     .buttonStyle(.plain)
-                    .help("手动重新拉取系统最新默认状态")
+                    .help("重新拉取系统最新默认状态")
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
+            .background(Color(nsColor: .windowBackgroundColor))
             
             Divider()
+                .opacity(0.6)
             
             // Extensions Dynamic List
             ScrollView {
-                LazyVStack(spacing: 4) {
+                LazyVStack(spacing: 3) {
                     ForEach($vm.currentAppExtensions) { $item in
                         if vm.extensionSearchText.isEmpty || item.ext.localizedCaseInsensitiveContains(vm.extensionSearchText) || item.desc.localizedCaseInsensitiveContains(vm.extensionSearchText) {
                             if vm.extensionFilterMode == .all ||
@@ -1328,9 +1446,10 @@ struct AppDetailInspector: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 }
@@ -1623,39 +1742,43 @@ final class NativeAppMenuPresenter {
 struct ExtensionRowItem: View {
     @Binding var item: ExtensionItem
     let onSelectCandidate: (CandidateApp) -> Void
+    @State private var isHovered: Bool = false
     
     var body: some View {
         HStack(spacing: 12) {
+            // 1. Selection Checkbox
             Toggle("", isOn: $item.isSelected)
                 .labelsHidden()
                 .toggleStyle(.checkbox)
             
-            // Monospace Extension Tag
+            // 2. Monospace Extension Badge
             Text("." + item.ext)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundColor(.primary)
-                .frame(width: 86, alignment: .leading)
+                .frame(width: 82, alignment: .leading)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color.accentColor.opacity(0.12))
-                .cornerRadius(5)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(item.isDefaultByTargetApp ? Color.green.opacity(0.12) : Color.accentColor.opacity(0.10))
+                )
             
-            // Description (Shifted to the right for balanced 3-column rhythm)
-            VStack(alignment: .leading, spacing: 1) {
+            // 3. Format Description & UTI Hierarchy (Adaptive width, perfectly aligned)
+            VStack(alignment: .leading, spacing: 1.5) {
                 Text(item.desc)
                     .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
                     .lineLimit(1)
                 Text(item.uti)
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: 9.5, design: .monospaced))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
-            .padding(.leading, 28)
-            .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
             
-            Spacer(minLength: 16)
+            Spacer(minLength: 12)
             
-            // Single Source of Truth: Interactive App Selector Pill
+            // 4. Interactive App Selector Pill (Single source of truth)
             Button(action: {
                 NativeAppMenuPresenter.popUpAppMenu(for: item.ext, onSelectCandidate: onSelectCandidate)
             }) {
@@ -1663,11 +1786,12 @@ struct ExtensionRowItem: View {
                     if let icon = item.currentHandlerIcon {
                         Image(nsImage: icon)
                             .resizable()
-                            .frame(width: 13, height: 13)
-                            .clipShape(RoundedRectangle(cornerRadius: 2.5))
+                            .frame(width: 14, height: 14)
+                            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                     }
+                    
                     Text(item.currentHandlerName ?? "系统默认")
-                        .font(.system(size: 11, weight: item.isDefaultByTargetApp ? .semibold : .medium))
+                        .font(.system(size: 11.5, weight: item.isDefaultByTargetApp ? .semibold : .medium))
                         .foregroundColor(item.isDefaultByTargetApp ? .green : .primary)
                         .lineLimit(1)
                     
@@ -1679,31 +1803,37 @@ struct ExtensionRowItem: View {
                     
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(item.isDefaultByTargetApp ? .green.opacity(0.8) : .secondary.opacity(0.7))
+                        .foregroundColor(item.isDefaultByTargetApp ? .green.opacity(0.8) : .secondary.opacity(0.6))
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
                     item.isDefaultByTargetApp
-                        ? Color.green.opacity(0.10)
+                        ? Color.green.opacity(0.08)
                         : Color.primary.opacity(0.04)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(item.isDefaultByTargetApp ? Color.green.opacity(0.3) : Color.clear, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(item.isDefaultByTargetApp ? Color.green.opacity(0.28) : Color.primary.opacity(0.08), lineWidth: 0.8)
                 )
                 .cornerRadius(6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("点击快速选择本机其它支持该格式的应用打开")
+            .help("点击快速选择本机其它支持该格式的应用接管")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(item.isDefaultByTargetApp ? Color.green.opacity(0.03) : Color.primary.opacity(0.015))
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(
+                    item.isSelected
+                        ? Color.accentColor.opacity(0.05)
+                        : (isHovered ? Color.primary.opacity(0.025) : Color.clear)
+                )
         )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -1719,10 +1849,10 @@ struct ExtensionLookupView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Search & Quick Jump Panel
+            // Spotlight-Style Search & Quick Jump Panel
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
-                    Text("输入扩展名:")
+                    Text("查询扩展名:")
                         .font(.system(size: 13, weight: .semibold))
                     
                     HStack(spacing: 4) {
@@ -1731,16 +1861,28 @@ struct ExtensionLookupView: View {
                             .foregroundColor(.secondary)
                         TextField("例如 md, pdf, zip, py...", text: $vm.targetExtQuery)
                             .textFieldStyle(.plain)
-                            .font(.system(size: 14, design: .monospaced))
+                            .font(.system(size: 13.5, design: .monospaced))
                             .onSubmit {
                                 vm.performExtensionLookup()
                             }
+                        if !vm.targetExtQuery.isEmpty {
+                            Button(action: { vm.targetExtQuery = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.primary.opacity(0.05))
-                    .cornerRadius(8)
-                    .frame(width: 220)
+                    .background(Color.primary.opacity(0.04))
+                    .cornerRadius(7)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+                    )
+                    .frame(width: 240)
                     
                     Button("立即反查") {
                         vm.performExtensionLookup()
@@ -1764,47 +1906,49 @@ struct ExtensionLookupView: View {
                                     vm.targetExtQuery = ext
                                     vm.performExtensionLookup()
                                 }
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
                                 .background(
                                     vm.targetExtQuery.lowercased() == ext ?
-                                    Color.accentColor.opacity(0.2) : Color.primary.opacity(0.04)
+                                    Color.accentColor.opacity(0.18) : Color.primary.opacity(0.04)
                                 )
                                 .foregroundColor(vm.targetExtQuery.lowercased() == ext ? .accentColor : .primary)
-                                .cornerRadius(6)
+                                .cornerRadius(5)
                                 .buttonStyle(.plain)
                             }
                         }
                     }
                 }
             }
-            .padding(18)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
             
             Divider()
+                .opacity(0.6)
             
             // Format Overview Hero
             HStack(spacing: 16) {
                 Text("." + vm.targetExtQuery.replacingOccurrences(of: ".", with: ""))
-                    .font(.system(size: 26, weight: .bold, design: .monospaced))
+                    .font(.system(size: 24, weight: .bold, design: .monospaced))
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(AppTheme.primaryGradient.opacity(0.15))
+                    .padding(.vertical, 7)
+                    .background(Color.accentColor.opacity(0.12))
                     .foregroundColor(.accentColor)
                     .cornerRadius(8)
                 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("当前系统默认打开程序")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 10.5, weight: .semibold))
                         .foregroundColor(.secondary)
                     
                     if let def = vm.targetExtCurrentDefault {
                         HStack(spacing: 8) {
                             Image(nsImage: def.icon)
                                 .resizable()
-                                .frame(width: 20, height: 20)
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .frame(width: 22, height: 22)
+                                .clipShape(RoundedRectangle(cornerRadius: 4.5, style: .continuous))
                             Text(def.name)
                                 .font(.system(size: 15, weight: .bold))
                             Text("(\(def.bundleId))")
@@ -1820,20 +1964,22 @@ struct ExtensionLookupView: View {
                 
                 Spacer()
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color(nsColor: .windowBackgroundColor))
             
             Divider()
+                .opacity(0.6)
             
             // Candidate Applications Grid/List
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("本机已安装且支持此格式的候选应用 (\(vm.targetExtCandidates.count))")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11.5, weight: .semibold))
                         .foregroundColor(.secondary)
                     Spacer()
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 20)
                 .padding(.top, 12)
                 
                 ScrollView {
@@ -1842,21 +1988,25 @@ struct ExtensionLookupView: View {
                             HStack(spacing: 12) {
                                 Image(nsImage: candidate.icon)
                                     .resizable()
-                                    .frame(width: 36, height: 36)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                    .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+                                    .frame(width: 34, height: 34)
+                                    .clipShape(RoundedRectangle(cornerRadius: 7.5, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7.5, style: .continuous)
+                                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                                    )
+                                    .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 8) {
                                         Text(candidate.name)
-                                            .font(.system(size: 14, weight: .medium))
+                                            .font(.system(size: 13.5, weight: .medium))
                                         if candidate.isCurrentDefault {
                                             Text("✓ 当前默认")
                                                 .font(.system(size: 10, weight: .bold))
                                                 .foregroundColor(.green)
                                                 .padding(.horizontal, 6)
                                                 .padding(.vertical, 2)
-                                                .background(Color.green.opacity(0.15))
+                                                .background(Color.green.opacity(0.12))
                                                 .cornerRadius(4)
                                         }
                                     }
@@ -1869,11 +2019,11 @@ struct ExtensionLookupView: View {
                                 
                                 if candidate.isCurrentDefault {
                                     Text("正在作为默认")
-                                        .font(.system(size: 12))
+                                        .font(.system(size: 11.5))
                                         .foregroundColor(.secondary)
                                         .padding(.trailing, 8)
                                 } else {
-                                    Button("设为此应用打开") {
+                                    Button("设为默认打开应用") {
                                         vm.setCandidateAsDefault(candidate: candidate)
                                     }
                                     .buttonStyle(.borderedProminent)
@@ -1883,19 +2033,20 @@ struct ExtensionLookupView: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
                             .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .fill(candidate.isCurrentDefault ? Color.green.opacity(0.04) : Color.primary.opacity(0.02))
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .stroke(candidate.isCurrentDefault ? Color.green.opacity(0.2) : Color.clear, lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .stroke(candidate.isCurrentDefault ? Color.green.opacity(0.2) : Color.primary.opacity(0.05), lineWidth: 0.8)
                                     )
                             )
                         }
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 20)
                     .padding(.bottom, 16)
                 }
             }
+            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 }

@@ -2,7 +2,7 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$REPO_ROOT/Resources/Info.plist" 2>/dev/null || echo "0.0.2")
+VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$REPO_ROOT/Resources/Info.plist" 2>/dev/null || echo "0.0.3")
 APP_NAME="Default App"
 BUILD_APP="$REPO_ROOT/build/$APP_NAME.app"
 DIST_DIR="$REPO_ROOT/dist"

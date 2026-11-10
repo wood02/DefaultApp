@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wood02/DefaultApp/releases"><img src="https://img.shields.io/badge/Release-v0.0.2-blue.svg?style=flat-square" alt="Release" /></a>
+  <a href="https://github.com/wood02/DefaultApp/releases"><img src="https://img.shields.io/badge/Release-v0.0.3-blue.svg?style=flat-square" alt="Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/macOS-12.0+-black.svg?style=flat-square&logo=apple" alt="macOS 12+" />
   <img src="https://img.shields.io/badge/Architecture-Universal%20(Apple%20Silicon%20%2B%20Intel)-purple.svg?style=flat-square" alt="Universal 2" />
@@ -55,7 +55,7 @@
 
 #### 方式一：直接下载发布包（推荐）
 前往 [GitHub Releases](https://github.com/wood02/DefaultApp/releases) 下载最新的 DMG 或 ZIP 安装包：
-1. 双击打开 `Default-App-v0.0.2-macOS-Universal.dmg`；
+1. 双击打开 `Default-App-v0.0.3-macOS-Universal.dmg`；
 2. 将 **Default App** 拖入 `Applications` 文件夹即可直接运行。
 
 #### 方式二：源码一键构建
