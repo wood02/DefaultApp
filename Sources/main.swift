@@ -79,6 +79,12 @@ struct CandidateApp: Identifiable {
     let icon: NSImage
     let path: String
     let isCurrentDefault: Bool
+    
+    var menuIcon: NSImage {
+        let copy = icon.copy() as! NSImage
+        copy.size = NSSize(width: 16, height: 16)
+        return copy
+    }
 }
 
 // MARK: - Service Manager
@@ -496,6 +502,22 @@ final class AppViewModel: ObservableObject {
             schedulePeriodicRefresh()
         } else {
             showToast("设置 .\(ext) 失败，请检查权限", success: false)
+        }
+    }
+    
+    func changeDefaultApp(for ext: String, to candidate: CandidateApp) {
+        let cleanExt = ext.lowercased()
+        let ok = LaunchServicesManager.shared.setDefault(ext: ext, bundleId: candidate.bundleId)
+        if ok {
+            showToast("已请求将 .\(ext) 默认打开程序变更为 \(candidate.name)，请在系统弹窗中确认", success: true)
+            reloadExtensions(preserveUserSelection: true)
+            schedulePeriodicRefresh()
+        } else {
+            if Self.webExtensions.contains(cleanExt) {
+                showToast("变更失败：macOS 系统限制仅允许网页浏览器类应用接管 .\(ext) 格式", success: false)
+            } else {
+                showToast("变更 .\(ext) 打开程序失败，请检查权限", success: false)
+            }
         }
     }
     
@@ -1138,9 +1160,12 @@ struct AppDetailInspector: View {
                                (vm.extensionFilterMode == .common && item.isCommon) ||
                                (vm.extensionFilterMode == .active && item.isDefaultByTargetApp) ||
                                (vm.extensionFilterMode == .inactive && !item.isDefaultByTargetApp) {
-                                ExtensionRowItem(item: $item, onApplySingle: {
-                                    vm.setSingleExtension(ext: item.ext)
-                                })
+                                ExtensionRowItem(
+                                    item: $item,
+                                    onSelectCandidate: { candidate in
+                                        vm.changeDefaultApp(for: item.ext, to: candidate)
+                                    }
+                                )
                             }
                         }
                     }
@@ -1152,9 +1177,72 @@ struct AppDetailInspector: View {
     }
 }
 
+// MARK: - Native Menu Helper for Candidate Apps
+
+final class MenuActionTarget: NSObject {
+    let action: () -> Void
+    init(action: @escaping () -> Void) {
+        self.action = action
+        super.init()
+    }
+    @objc func trigger() {
+        action()
+    }
+}
+
+final class NativeAppMenuPresenter {
+    static func popUpAppMenu(
+        for ext: String,
+        onSelectCandidate: @escaping (CandidateApp) -> Void
+    ) {
+        let menu = NSMenu(title: "Choose App")
+        
+        let headerItem = NSMenuItem(title: "将 .\(ext) 默认打开程序切换为：", action: nil, keyEquivalent: "")
+        headerItem.isEnabled = false
+        menu.addItem(headerItem)
+        menu.addItem(NSMenuItem.separator())
+        
+        let candidates = LaunchServicesManager.shared.getAllCandidates(for: ext)
+        if candidates.isEmpty {
+            let emptyItem = NSMenuItem(title: "未找到支持此格式的其它候选应用", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            menu.addItem(emptyItem)
+        } else {
+            for candidate in candidates {
+                let item = NSMenuItem(
+                    title: candidate.name,
+                    action: #selector(MenuActionTarget.trigger),
+                    keyEquivalent: ""
+                )
+                
+                // 规范设置 16x16 菜单图标
+                let iconCopy = candidate.icon.copy() as! NSImage
+                iconCopy.size = NSSize(width: 16, height: 16)
+                item.image = iconCopy
+                
+                if candidate.isCurrentDefault {
+                    item.state = .on
+                }
+                
+                let target = MenuActionTarget {
+                    onSelectCandidate(candidate)
+                }
+                item.target = target
+                item.representedObject = target
+                menu.addItem(item)
+            }
+        }
+        
+        if let window = NSApp.keyWindow, let contentView = window.contentView {
+            let mouseLocation = window.mouseLocationOutsideOfEventStream
+            menu.popUp(positioning: nil, at: mouseLocation, in: contentView)
+        }
+    }
+}
+
 struct ExtensionRowItem: View {
     @Binding var item: ExtensionItem
-    let onApplySingle: () -> Void
+    let onSelectCandidate: (CandidateApp) -> Void
     
     var body: some View {
         HStack(spacing: 12) {
@@ -1166,13 +1254,13 @@ struct ExtensionRowItem: View {
             Text("." + item.ext)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundColor(.primary)
-                .frame(width: 70, alignment: .leading)
+                .frame(width: 86, alignment: .leading)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
                 .background(Color.accentColor.opacity(0.12))
                 .cornerRadius(5)
             
-            // Description
+            // Description (Shifted to the right for balanced 3-column rhythm)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.desc)
                     .font(.system(size: 12, weight: .medium))
@@ -1182,50 +1270,59 @@ struct ExtensionRowItem: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
-            .frame(width: 170, alignment: .leading)
+            .padding(.leading, 28)
+            .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
             
-            // Current System Default Status
-            HStack(spacing: 6) {
-                if let icon = item.currentHandlerIcon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 16, height: 16)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+            Spacer(minLength: 16)
+            
+            // Single Source of Truth: Interactive App Selector Pill
+            Button(action: {
+                NativeAppMenuPresenter.popUpAppMenu(for: item.ext, onSelectCandidate: onSelectCandidate)
+            }) {
+                HStack(spacing: 6) {
+                    if let icon = item.currentHandlerIcon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 13, height: 13)
+                            .clipShape(RoundedRectangle(cornerRadius: 2.5))
+                    }
+                    Text(item.currentHandlerName ?? "系统默认")
+                        .font(.system(size: 11, weight: item.isDefaultByTargetApp ? .semibold : .medium))
+                        .foregroundColor(item.isDefaultByTargetApp ? .green : .primary)
+                        .lineLimit(1)
+                    
+                    if item.isDefaultByTargetApp {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.green)
+                    }
+                    
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(item.isDefaultByTargetApp ? .green.opacity(0.8) : .secondary.opacity(0.7))
                 }
-                Text("当前默认: \(item.currentHandlerName ?? "系统默认")")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-            
-            Spacer()
-            
-            // Status or Set Button
-            if item.isDefaultByTargetApp {
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("当前生效")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .foregroundColor(.green)
-                .padding(.horizontal, 9)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.green.opacity(0.12))
+                .background(
+                    item.isDefaultByTargetApp
+                        ? Color.green.opacity(0.10)
+                        : Color.primary.opacity(0.04)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(item.isDefaultByTargetApp ? Color.green.opacity(0.3) : Color.clear, lineWidth: 1)
+                )
                 .cornerRadius(6)
-            } else {
-                Button("设为默认") {
-                    onApplySingle()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help("点击快速选择本机其它支持该格式的应用打开")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(item.isDefaultByTargetApp ? Color.green.opacity(0.04) : Color.primary.opacity(0.02))
+                .fill(item.isDefaultByTargetApp ? Color.green.opacity(0.03) : Color.primary.opacity(0.015))
         )
     }
 }
