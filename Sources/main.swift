@@ -179,11 +179,10 @@ final class AppScanner {
         
         var apps = [AppInfo]()
         var seenBundleIds = Set<String>()
-        let fm = FileManager.default
         
         for dir in searchPaths {
-            guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else { continue }
-            for item in items where item.pathExtension == "app" {
+            let appItems = collectAppBundles(in: dir)
+            for item in appItems {
                 let plistURL = item.appendingPathComponent("Contents/Info.plist")
                 guard let data = try? Data(contentsOf: plistURL),
                       let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
@@ -193,19 +192,7 @@ final class AppScanner {
                     continue
                 }
                 
-                var exts = Set<String>()
-                if let docTypes = plist["CFBundleDocumentTypes"] as? [[String: Any]] {
-                    for doc in docTypes {
-                        if let extensions = doc["CFBundleTypeExtensions"] as? [String] {
-                            for ext in extensions {
-                                let clean = ext.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                                if !clean.isEmpty && clean != "*" && clean.count <= 12 {
-                                    exts.insert(clean)
-                                }
-                            }
-                        }
-                    }
-                }
+                var exts = extractSupportedExtensions(from: plist)
                 
                 if bundleId == "com.apple.archiveutility" && exts.isEmpty {
                     exts.formUnion(["zip", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "cpgz", "cpio"])
@@ -231,6 +218,111 @@ final class AppScanner {
         }
         
         return apps.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    }
+    
+    /// 扫描指定目录及其下一层子目录（如 /Applications/Setapp、~/Applications/JetBrains Toolbox 等）中的 .app
+    private static func collectAppBundles(in rootDir: URL) -> [URL] {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(
+            at: rootDir,
+            includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+            options: .skipsHiddenFiles
+        ) else {
+            return []
+        }
+        
+        var results = [URL]()
+        for item in items {
+            if item.pathExtension.lowercased() == "app" {
+                results.append(item)
+                continue
+            }
+            // 如果是普通文件夹且不是 .app/.framework 等 Package，则向下扫描一层
+            if let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]),
+               values.isDirectory == true,
+               values.isPackage != true,
+               let subItems = try? fm.contentsOfDirectory(at: item, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
+                for subItem in subItems where subItem.pathExtension.lowercased() == "app" {
+                    results.append(subItem)
+                }
+            }
+        }
+        return results
+    }
+    
+    /// 从 Info.plist 中提取应用支持的文件扩展名（同时支持 CFBundleTypeExtensions 与 LSItemContentTypes / UTI 声明）
+    private static func extractSupportedExtensions(from plist: [String: Any]) -> Set<String> {
+        var exts = Set<String>()
+        
+        func insertValidExtension(_ raw: String) {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                .lowercased()
+            if !clean.isEmpty && clean != "*" && clean.count <= 12 && !clean.contains("/") && !clean.contains(" ") {
+                exts.insert(clean)
+            }
+        }
+        
+        // 1. 构建应用内自定义 UTI (UTExportedTypeDeclarations + UTImportedTypeDeclarations) 到扩展名的映射表
+        var customUTIToExtensions = [String: [String]]()
+        let declarationKeys = ["UTExportedTypeDeclarations", "UTImportedTypeDeclarations"]
+        for key in declarationKeys {
+            if let declarations = plist[key] as? [[String: Any]] {
+                for decl in declarations {
+                    guard let utiId = (decl["UTTypeIdentifier"] as? String)?.lowercased(),
+                          let tagSpec = decl["UTTypeTagSpecification"] as? [String: Any] else {
+                        continue
+                    }
+                    var declaredExts = [String]()
+                    if let extArray = tagSpec["public.filename-extension"] as? [String] {
+                        declaredExts.append(contentsOf: extArray)
+                    } else if let extSingle = tagSpec["public.filename-extension"] as? String {
+                        declaredExts.append(extSingle)
+                    }
+                    if !declaredExts.isEmpty {
+                        customUTIToExtensions[utiId, default: []].append(contentsOf: declaredExts)
+                    }
+                }
+            }
+        }
+        
+        // 2. 解析 CFBundleDocumentTypes
+        if let docTypes = plist["CFBundleDocumentTypes"] as? [[String: Any]] {
+            for doc in docTypes {
+                // 2a. 传统 CFBundleTypeExtensions
+                if let extensions = doc["CFBundleTypeExtensions"] as? [String] {
+                    for ext in extensions {
+                        insertValidExtension(ext)
+                    }
+                }
+                
+                // 2b. 现代 LSItemContentTypes (UTI)
+                if let contentTypes = doc["LSItemContentTypes"] as? [String] {
+                    for utiStr in contentTypes {
+                        let lowerUTI = utiStr.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        guard !lowerUTI.isEmpty else { continue }
+                        
+                        // 先查应用内自定义 UTI 映射
+                        if let mapped = customUTIToExtensions[lowerUTI] {
+                            for ext in mapped {
+                                insertValidExtension(ext)
+                            }
+                        }
+                        
+                        // 再通过系统 UniformTypeIdentifiers 反解标准扩展名
+                        if let utType = UTType(utiStr),
+                           let utExts = utType.tags[.filenameExtension] {
+                            for ext in utExts {
+                                insertValidExtension(ext)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return exts
     }
     
     private static func categorize(bundleId: String, name: String, exts: Set<String>) -> AppCategory {
@@ -341,17 +433,20 @@ final class AppViewModel: ObservableObject {
     
     func selectApp(_ app: AppInfo) {
         selectedApp = app
-        reloadExtensions()
+        reloadExtensions(preserveUserSelection: false)
     }
     
-    func reloadExtensions() {
+    func reloadExtensions(preserveUserSelection: Bool = false) {
         guard let app = selectedApp else { return }
+        let previouslySelected = Set(currentAppExtensions.filter { $0.isSelected }.map { $0.ext })
+        
         currentAppExtensions = app.extensions.map { ext in
             let uti = UTType(filenameExtension: ext)?.identifier ?? "public.data"
             let desc = UTType(filenameExtension: ext)?.localizedDescription ?? "\(ext.uppercased()) 文件"
             let def = LaunchServicesManager.shared.getCurrentDefault(for: ext)
             let isCurrent = (def?.bundleId == app.bundleId)
             let isCommon = commonExtensionSet.contains(ext.lowercased())
+            let shouldSelect = preserveUserSelection ? (isCurrent || previouslySelected.contains(ext)) : isCurrent
             return ExtensionItem(
                 id: ext,
                 ext: ext,
@@ -361,7 +456,7 @@ final class AppViewModel: ObservableObject {
                 currentHandlerName: def?.name,
                 currentHandlerIcon: def?.icon,
                 isDefaultByTargetApp: isCurrent,
-                isSelected: isCurrent,
+                isSelected: shouldSelect,
                 isCommon: isCommon
             )
         }
@@ -385,7 +480,9 @@ final class AppViewModel: ObservableObject {
     func schedulePeriodicRefresh() {
         for delay in [0.8, 1.8, 3.2, 5.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.reloadExtensions()
+                guard let self = self else { return }
+                self.reloadExtensions(preserveUserSelection: true)
+                self.performExtensionLookup()
             }
         }
     }
@@ -395,7 +492,7 @@ final class AppViewModel: ObservableObject {
         let ok = LaunchServicesManager.shared.setDefault(ext: ext, bundleId: app.bundleId)
         if ok {
             showToast("已请求将 .\(ext) 切换为 \(app.name)，请在系统弹窗中确认", success: true)
-            reloadExtensions()
+            reloadExtensions(preserveUserSelection: true)
             schedulePeriodicRefresh()
         } else {
             showToast("设置 .\(ext) 失败，请检查权限", success: false)
@@ -404,29 +501,41 @@ final class AppViewModel: ObservableObject {
     
     func applySelectedExtensions() {
         guard let app = selectedApp else { return }
-        let selectedList = currentAppExtensions.filter { $0.isSelected }.map { $0.ext }
-        guard !selectedList.isEmpty else {
+        let selectedItems = currentAppExtensions.filter { $0.isSelected }
+        guard !selectedItems.isEmpty else {
             showToast("未勾选任何扩展名", success: false)
             return
         }
-        let res = LaunchServicesManager.shared.batchSetDefault(exts: selectedList, bundleId: app.bundleId)
-        showToast("已提交 \(res.success) 个格式切换请求，请在弹窗中确认", success: true)
-        reloadExtensions()
+        // 仅对「已勾选但尚未生效」的增量格式发起请求，避免对已生效格式重复弹出系统确认框
+        let pendingList = selectedItems.filter { !$0.isDefaultByTargetApp }.map { $0.ext }
+        guard !pendingList.isEmpty else {
+            showToast("所选格式均已默认生效，无需重复设置", success: true)
+            return
+        }
+        let res = LaunchServicesManager.shared.batchSetDefault(exts: pendingList, bundleId: app.bundleId)
+        showToast("已提交 \(res.success) 个新增格式切换请求，请在弹窗中确认", success: true)
+        reloadExtensions(preserveUserSelection: true)
         schedulePeriodicRefresh()
     }
     
     func applyAllExtensionsForApp() {
         guard let app = selectedApp else { return }
         // 对非浏览器类应用（如代码编辑器、解压工具等），过滤掉网页格式，防止 macOS 将默认网页浏览器劫持为该编辑器
-        let targetExts: [String]
+        let candidateExts: [String]
         if app.category != .browser {
-            targetExts = app.extensions.filter { !Self.webExtensions.contains($0.lowercased()) }
+            candidateExts = app.extensions.filter { !Self.webExtensions.contains($0.lowercased()) }
         } else {
-            targetExts = app.extensions
+            candidateExts = app.extensions
+        }
+        let alreadyActive = Set(currentAppExtensions.filter { $0.isDefaultByTargetApp }.map { $0.ext })
+        let targetExts = candidateExts.filter { !alreadyActive.contains($0) }
+        guard !targetExts.isEmpty else {
+            showToast("所有目标格式均已默认生效，无需重复设置", success: true)
+            return
         }
         let res = LaunchServicesManager.shared.batchSetDefault(exts: targetExts, bundleId: app.bundleId)
-        showToast("已提交全部 \(res.success) 个格式切换请求，请在弹窗中确认", success: true)
-        reloadExtensions()
+        showToast("已提交 \(res.success) 个格式切换请求，请在弹窗中确认", success: true)
+        reloadExtensions(preserveUserSelection: true)
         schedulePeriodicRefresh()
     }
     
@@ -442,11 +551,12 @@ final class AppViewModel: ObservableObject {
         let clean = targetExtQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: ".", with: "")
         let ok = LaunchServicesManager.shared.setDefault(ext: clean, bundleId: candidate.bundleId)
         if ok {
-            showToast("已将 .\(clean) 默认打开程序变更为 \(candidate.name)", success: true)
+            showToast("已请求将 .\(clean) 默认打开程序变更为 \(candidate.name)，请在系统弹窗中确认", success: true)
             performExtensionLookup()
             if selectedApp?.bundleId == candidate.bundleId {
-                reloadExtensions()
+                reloadExtensions(preserveUserSelection: true)
             }
+            schedulePeriodicRefresh()
         } else {
             showToast("变更失败", success: false)
         }
