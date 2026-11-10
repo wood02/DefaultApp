@@ -637,10 +637,124 @@ struct ToastBanner: View {
     }
 }
 
+// MARK: - Auto Update Sheet View
+
+struct UpdateSheetView: View {
+    @ObservedObject var updater = UpdateManager.shared
+    let release: ReleaseInfo
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Header
+            HStack(spacing: 14) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 48, height: 48)
+                    .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text("发现新版本")
+                            .font(.system(size: 16, weight: .bold))
+                        Text(release.tagName)
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor)
+                            .cornerRadius(4)
+                    }
+                    Text("当前安装版本: v\(updater.currentVersion)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            
+            // Release Notes Box
+            VStack(alignment: .leading, spacing: 6) {
+                Text("更新日志")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                
+                ScrollView {
+                    Text(release.body.isEmpty ? "包含性能提升与常规问题修复。" : release.body)
+                        .font(.system(size: 12))
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                }
+                .frame(height: 140)
+                .background(Color.primary.opacity(0.03))
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+            }
+            
+            // Download Progress / Status
+            if updater.isDownloading {
+                VStack(spacing: 6) {
+                    ProgressView(value: updater.downloadProgress)
+                        .progressViewStyle(.linear)
+                    Text(updater.statusMessage)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            } else if !updater.statusMessage.isEmpty {
+                Text(updater.statusMessage)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+            }
+            
+            // Action Buttons
+            HStack(spacing: 12) {
+                Button("稍后提醒") {
+                    onDismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                
+                Spacer()
+                
+                Button("在浏览器中打开") {
+                    if let url = URL(string: release.htmlUrl) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                
+                if release.downloadUrl != nil {
+                    Button(action: {
+                        updater.startAutoUpdate(release: release)
+                    }) {
+                        HStack(spacing: 5) {
+                            if updater.isDownloading {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.down.circle.fill")
+                            }
+                            Text(updater.isDownloading ? "正在更新..." : "一键更新并重启")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(updater.isDownloading)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
+    }
+}
+
 // MARK: - Main Application Window
 
 struct ContentView: View {
     @StateObject private var vm = AppViewModel()
+    @ObservedObject private var updater = UpdateManager.shared
     
     var body: some View {
         VStack(spacing: 0) {
@@ -691,11 +805,43 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                // Status / App Count
-                Text("\(vm.apps.count) 款应用已就绪")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 4)
+                // Status / App Count & Dynamic Update Capsule Button
+                HStack(spacing: 12) {
+                    Text("\(vm.apps.count) 款应用已就绪")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                    
+                    // 仅在检测到新版本可用时，才动态浮现此 [↑ 更新] 胶囊按钮
+                    if let release = updater.availableRelease {
+                        Button(action: {
+                            updater.showUpdateSheet = true
+                        }) {
+                            HStack(spacing: 5) {
+                                if updater.isDownloading {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                } else {
+                                    Image(systemName: "arrow.up")
+                                        .font(.system(size: 10, weight: .bold))
+                                }
+                                Text(updater.isDownloading ? "更新中..." : "更新")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(Color(red: 0.38, green: 0.38, blue: 0.95))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 4)
+                            .background(Color(red: 0.38, green: 0.38, blue: 0.95).opacity(0.10))
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color(red: 0.38, green: 0.38, blue: 0.95).opacity(0.35), lineWidth: 1)
+                            )
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.scale(scale: 0.85).combined(with: .opacity))
+                        .help("检测到新版本 \(release.tagName)，点击查看更新日志并一键更新")
+                    }
+                }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
@@ -718,6 +864,18 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 920, minHeight: 640)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                updater.checkForUpdates(isUserInitiated: false)
+            }
+        }
+        .sheet(isPresented: $updater.showUpdateSheet) {
+            if let rel = updater.availableRelease {
+                UpdateSheetView(release: rel) {
+                    updater.showUpdateSheet = false
+                }
+            }
+        }
     }
 }
 
@@ -1177,6 +1335,228 @@ struct AppDetailInspector: View {
     }
 }
 
+// MARK: - Native Auto Updater (GitHub Releases)
+
+struct ReleaseInfo: Decodable {
+    let tagName: String
+    let name: String
+    let body: String
+    let publishedAt: String
+    let htmlUrl: String
+    let downloadUrl: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case name
+        case body
+        case publishedAt = "published_at"
+        case htmlUrl = "html_url"
+        case assets
+    }
+    
+    struct Asset: Decodable {
+        let name: String
+        let browserDownloadUrl: String
+        enum CodingKeys: String, CodingKey {
+            case name
+            case browserDownloadUrl = "browser_download_url"
+        }
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tagName = try container.decode(String.self, forKey: .tagName)
+        name = (try? container.decode(String.self, forKey: .name)) ?? tagName
+        body = (try? container.decode(String.self, forKey: .body)) ?? ""
+        publishedAt = (try? container.decode(String.self, forKey: .publishedAt)) ?? ""
+        htmlUrl = try container.decode(String.self, forKey: .htmlUrl)
+        
+        let assets = (try? container.decode([Asset].self, forKey: .assets)) ?? []
+        let matched = assets.first { $0.name.lowercased().hasSuffix(".dmg") } ?? assets.first { $0.name.lowercased().hasSuffix(".zip") }
+        downloadUrl = matched?.browserDownloadUrl
+    }
+}
+
+@MainActor
+final class UpdateManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
+    static let shared = UpdateManager()
+    
+    @Published var isChecking: Bool = false
+    @Published var availableRelease: ReleaseInfo?
+    @Published var showUpdateSheet: Bool = false
+    
+    @Published var isDownloading: Bool = false
+    @Published var downloadProgress: Double = 0.0
+    @Published var statusMessage: String = ""
+    
+    private let repoOwner = "wood02"
+    private let repoName = "DefaultApp"
+    
+    var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.1"
+    }
+    
+    func checkForUpdates(isUserInitiated: Bool, onToast: ((String, Bool) -> Void)? = nil) {
+        guard !isChecking, !isDownloading else { return }
+        isChecking = true
+        
+        guard let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest") else {
+            isChecking = false
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("DefaultApp-Updater", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 10
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isChecking = false
+                
+                guard let data = data, error == nil,
+                      let release = try? JSONDecoder().decode(ReleaseInfo.self, from: data) else {
+                    if isUserInitiated {
+                        onToast?("检查更新失败，请检查网络连接", false)
+                    }
+                    return
+                }
+                
+                if self.isVersion(release.tagName, greaterThan: self.currentVersion) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                        self.availableRelease = release
+                    }
+                    if isUserInitiated {
+                        self.showUpdateSheet = true
+                    }
+                } else {
+                    withAnimation {
+                        self.availableRelease = nil
+                    }
+                    if isUserInitiated {
+                        onToast?("当前已是最新版本 (v\(self.currentVersion))", true)
+                    }
+                }
+            }
+        }.resume()
+    }
+    
+    func startAutoUpdate(release: ReleaseInfo) {
+        guard let downloadUrlString = release.downloadUrl, let url = URL(string: downloadUrlString) else {
+            if let webUrl = URL(string: release.htmlUrl) {
+                NSWorkspace.shared.open(webUrl)
+            }
+            return
+        }
+        
+        isDownloading = true
+        downloadProgress = 0.0
+        statusMessage = "正在下载更新包..."
+        
+        let config = URLSessionConfiguration.default
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        let task = session.downloadTask(with: url)
+        task.resume()
+    }
+    
+    // URLSessionDownloadDelegate
+    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        let progress = totalBytesExpectedToWrite > 0 ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) : 0.0
+        Task { @MainActor in
+            self.downloadProgress = progress
+            self.statusMessage = String(format: "正在下载新版本... %.0f%%", progress * 100)
+        }
+    }
+    
+    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let tempDmgPath = "/tmp/DefaultApp_update.dmg"
+        try? FileManager.default.removeItem(atPath: tempDmgPath)
+        try? FileManager.default.copyItem(at: location, to: URL(fileURLWithPath: tempDmgPath))
+        
+        Task { @MainActor in
+            self.statusMessage = "下载完成，正在自动安装并准备重启..."
+            self.installAndRelaunch(dmgPath: tempDmgPath)
+        }
+    }
+    
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            Task { @MainActor in
+                self.isDownloading = false
+                self.statusMessage = "下载失败: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    private func installAndRelaunch(dmgPath: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let script = """
+            set -e
+            MOUNT_DIR="/tmp/DefaultApp_mount"
+            rm -rf "$MOUNT_DIR"
+            mkdir -p "$MOUNT_DIR"
+            hdiutil attach "\(dmgPath)" -nobrowse -mountpoint "$MOUNT_DIR" -quiet
+            
+            TARGET_APP="/Applications/Default App.app"
+            if [ -d "$MOUNT_DIR/Default App.app" ]; then
+                killall -9 DefaultApp 2>/dev/null || true
+                rm -rf "$TARGET_APP"
+                cp -R "$MOUNT_DIR/Default App.app" "$TARGET_APP"
+                codesign -fs - --deep "$TARGET_APP" 2>/dev/null || true
+                hdiutil detach "$MOUNT_DIR" -force -quiet || true
+                rm -rf "\(dmgPath)" "$MOUNT_DIR"
+                open "$TARGET_APP"
+                exit 0
+            else
+                hdiutil detach "$MOUNT_DIR" -force -quiet || true
+                exit 1
+            fi
+            """
+            
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", script]
+            do {
+                try process.run()
+                process.waitUntilExit()
+                if process.terminationStatus == 0 {
+                    DispatchQueue.main.async {
+                        NSApp.terminate(nil)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.isDownloading = false
+                        self.statusMessage = "自动安装失败，建议前往浏览器下载"
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isDownloading = false
+                    self.statusMessage = "安装失败: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    private func isVersion(_ newVer: String, greaterThan currentVer: String) -> Bool {
+        func parse(_ str: String) -> [Int] {
+            let clean = str.trimmingCharacters(in: CharacterSet(charactersIn: "vV \t\n"))
+            return clean.split(separator: ".").compactMap { Int($0) }
+        }
+        let v1 = parse(newVer)
+        let v2 = parse(currentVer)
+        let count = max(v1.count, v2.count)
+        for i in 0..<count {
+            let p1 = i < v1.count ? v1[i] : 0
+            let p2 = i < v2.count ? v2[i] : 0
+            if p1 > p2 { return true }
+            if p1 < p2 { return false }
+        }
+        return false
+    }
+}
+
 // MARK: - Native Menu Helper for Candidate Apps
 
 final class MenuActionTarget: NSObject {
@@ -1559,6 +1939,12 @@ struct DefaultApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             SidebarCommands()
+            CommandGroup(after: .appInfo) {
+                Button("检查更新...") {
+                    UpdateManager.shared.checkForUpdates(isUserInitiated: true)
+                }
+                .keyboardShortcut("U", modifiers: [.command])
+            }
         }
     }
 }
